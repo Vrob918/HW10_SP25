@@ -123,22 +123,29 @@ class CarModel():
         self.yangdeg = 45.0  # ramp angle in degrees.  default is 45
         self.results = None
 
-        #set default values for the properties of the quarter car model
-        self.m1 = #$JES MISSING CODE# # mass of car body in kg
-        self.m2 = #$JES MISSING CODE#  # mass of wheel in kg
-        self.c1 = #$JES MISSING CODE#  # damping coefficient in N*s/m
-        self.k1 = #$JES MISSING CODE#  # spring constant of suspension in N/m
-        self.k2 = #$JES MISSING CODE#  # spring constant of tire in N/m
-        self.v = #$JES MISSING CODE#  # velocity of car in kph
+        # set default properties from the GUI defaults
+        self.m1 = 450.0  # car body mass in kg
+        self.m2 = 20.0  # wheel mass in kg
+        self.c1 = 4500.0  # suspension damping (N·s/m)
+        self.k1 = 15000.0  # suspension spring constant (N/m)
+        self.k2 = 90000.0  # tire spring constant (N/m)
+        self.v = 120.0  # car speed in kph
 
+        # static-compression limits (3″–6″ for k1; 0.75″–1.5″ for k2)
+        δ1_min = 3.0 * 0.0254;
+        δ1_max = 6.0 * 0.0254
+        self.mink1 = self.m1 * 9.81 / δ1_max
+        self.maxk1 = self.m1 * 9.81 / δ1_min
+        δ2_min = 0.75 * 0.0254;
+        δ2_max = 1.5 * 0.0254
+        self.mink2 = self.m2 * 9.81 / δ2_max
+        self.maxk2 = self.m2 * 9.81 / δ2_min
 
-        self.mink1 = #$JES MISSING CODE#  #If I jack up my car and release the load on the spring, it extends about 3 inches
-        self.maxk1 = #$JES MISSING CODE#  #What would be a good value for a soft spring vs. a stiff spring?
-        self.mink2 = #$JES MISSING CODE#  #Same question for the shock absorber.
-        self.maxk2 = #$JES MISSING CODE#
-        self.accel =None
-        self.accelMax = #$JES MISSING CODE#
-        self.accelLim = #$JES MISSING CODE#
+        # acceleration tracking (in g)
+        self.accel = None
+        self.accelMax = 0.0
+        self.accelLim = 2.0  # 2 g limit
+
         self.SSE = 0.0
 
 class CarView():
@@ -163,17 +170,19 @@ class CarView():
 
         self.buildScene()
 
-    def updateView(self, model=None):
-        self.le_m1.setText("{:0.2f}".format(model.m1))
-        self.le_k1.setText("{:0.2f}".format(model.k1))
-        self.le_c1.setText("{:0.2f}".format(model.c1))
-        self.le_m2.setText("{:0.2f}".format(model.m2))
-        self.le_k2.setText("{:0.2f}".format(model.k2))
-        self.le_ang.setText("{:0.2f}".format(model.yangdeg))
-        self.le_tmax.setText("{:0.2f}".format(model.tmax))
-        stTmp="k1_min = {:0.2f}, k1_max = {:0.2f}\nk2_min = {:0.2f}, k2_max = {:0.2f}\n".format(model.mink1, model.maxk1, model.mink2, model.maxk2)
-        stTmp+="SSE = {:0.2f}".format(model.SSE)
-        self.lbl_MaxMinInfo.setText(stTmp)
+    def updateView(self, model):
+        self.le_m1.setText("{:.2f}".format(model.m1))
+        self.le_k1.setText("{:.2f}".format(model.k1))
+        self.le_c1.setText("{:.2f}".format(model.c1))
+        self.le_m2.setText("{:.2f}".format(model.m2))
+        self.le_k2.setText("{:.2f}".format(model.k2))
+        self.le_ang.setText("{:.2f}".format(model.yangdeg))
+        self.le_tmax.setText("{:.2f}".format(model.tmax))
+
+        info  = f"k1_min = {model.mink1:.2f}, k1_max = {model.maxk1:.2f}\n"
+        info += f"k2_min = {model.mink2:.2f}, k2_max = {model.maxk2:.2f}\n"
+        info += f"SSE    = {model.SSE:.2f}"
+        self.lbl_MaxMinInfo.setText(info)
         self.doPlot(model)
 
     def buildScene(self):
@@ -211,10 +220,10 @@ class CarView():
             QTPlotting = False  # actually, we are just using CLI and showing the plot
         ax.clear()
         ax1.clear()
-        t=model.timeData
+        t     = model.t
         ycar = model.results[:,0]
         ywheel=model.results[:,2]
-        accel=model.accelData
+        accel = model.accel
 
         if self.chk_LogX.isChecked():
             ax.set_xlim(0.001,model.tmax)
@@ -275,24 +284,22 @@ class CarController():
         self.chk_IncludeAccel=qtw.QCheckBox()
 
     def ode_system(self, X, t):
-        # define the forcing function equation for the linear ramp
-        # It takes self.tramp time to climb the ramp, so y position is
-        # a linear function of time.
         if t < self.model.tramp:
             y = self.model.ymag * (t / self.model.tramp)
         else:
             y = self.model.ymag
 
-        x1 = #$JES MISSING CODE#  # car position in vertical direction
-        x1dot = #$JES MISSING CODE#  # car velocity  in vertical direction
-        x2 = #$JES MISSING CODE#  # wheel position in vertical direction
-        x2dot = #$JES MISSING CODE#  # wheel velocity in vertical direction
+        x1, x1dot, x2, x2dot = X
 
-        # write the non-trivial equations in vertical direction
-        x1ddot = #$JES MISSING CODE#)
-        x2ddot = #$JES MISSING CODE#
+        # forces
+        f_spring = self.model.k1 * (x1 - x2)
+        f_damper = self.model.c1 * (x1dot - x2dot)
 
-        # return the derivatives of the input state vector
+        # equations of motion
+        x1ddot = (-f_spring - f_damper) / self.model.m1
+        x2ddot = (f_spring + f_damper
+                  - self.model.k2 * (x2 - y)) / self.model.m2
+
         return [x1dot, x1ddot, x2dot, x2ddot]
 
     def calculate(self, doCalc=True):
@@ -301,18 +308,23 @@ class CarController():
         in another function doCalc.
         """
         #Step 1.  Read from the widgets
-        self.model.m1 = #$JES MISSING CODE#
-        self.model.m2 = #$JES MISSING CODE#
-        self.model.c1 = #$JES MISSING CODE#
-        self.model.k1 = #$JES MISSING CODE#
-        self.model.k2 = #$JES MISSING CODE#
-        self.model.v = #$JES MISSING CODE#
+        # read GUI inputs
+        self.model.m1 = float(self.le_m1.text())
+        self.model.m2 = float(self.le_m2.text())
+        self.model.c1 = float(self.le_c1.text())
+        self.model.k1 = float(self.le_k1.text())
+        self.model.k2 = float(self.le_k2.text())
+        self.model.v = float(self.le_v.text())
 
-        #recalculate min and max k values
-        self.mink1=#$JES MISSING CODE#
-        self.maxk1=#$JES MISSING CODE#
-        self.mink2=#$JES MISSING CODE#
-        self.maxk2=#$JES MISSING CODE#
+        # recompute static limits
+        δ1_min = 3.0 * 0.0254;
+        δ1_max = 6.0 * 0.0254
+        self.model.mink1 = self.model.m1 * 9.81 / δ1_max
+        self.model.maxk1 = self.model.m1 * 9.81 / δ1_min
+        δ2_min = 0.75 * 0.0254;
+        δ2_max = 1.5 * 0.0254
+        self.model.mink2 = self.model.m2 * 9.81 / δ2_max
+        self.model.maxk2 = self.model.m2 * 9.81 / δ2_min
 
         ymag=6.0/(12.0*3.3)   #This is the height of the ramp in m
         if ymag is not None:
@@ -374,56 +386,65 @@ class CarController():
         Step 3:  optimize the suspension
         :return:
         """
-        #Step 1:
-        #$JES MISSING CODE HERE$
+        # sync model with GUI
         self.calculate(doCalc=False)
-        #Step 2:
-        #JES MISSING CODE HERE$
-        x0= # create a numpy array with initial values for k1, c1, and k2
-        #Step 3:
-        #JES MISSING CODE HERE$
-        answer= #use the Nelder-Mead method to minimize the SSE function (our objective function)
+
+        # 2. Clamp initial guess inside the valid [mink, maxk] ranges
+        k1_0 = np.clip(self.model.k1, self.model.mink1, self.model.maxk1)
+        k2_0 = np.clip(self.model.k2, self.model.mink2, self.model.maxk2)
+        x0 = np.array([k1_0, self.model.c1, k2_0])
+
+        # 3. Run Nelder–Mead
+        res = minimize(self.SSE, x0, method='Nelder-Mead')
+
+        # 4. Unpack and refresh the view
+        self.model.k1, self.model.c1, self.model.k2 = res.x
         self.view.updateView(self.model)
 
     def SSE(self, vals, optimizing=True):
         """
-        Calculates the sum of square errors between the contour of the road and the car body.
-        :param vals:
-        :param optimizing:
-        :return:
+        Sum squared error between car-body and ramp contour,
+        with additive penalties for out‐of‐bounds springs/damper
+        and for exceeding accel limit when requested.
         """
-        k1, c1, k2=vals  #unpack the new values for k1, c1, k2
-        self.model.k1=k1
-        self.model.c1=c1
-        self.model.k2=k2
-        self.doCalc(doPlot=False)  #solve the odesystem with the new values of k1, c1, k2
-        SSE=0
-        for i in range(len(self.model.results[:,0])):
-            t=self.model.t[i]
-            y=self.model.results[:,0][i]
+        # 1. unpack and assign
+        k1, c1, k2 = vals
+        self.model.k1 = k1
+        self.model.c1 = c1
+        self.model.k2 = k2
+
+        # 2. solve ODE (no plotting)
+        self.doCalc(doPlot=False)
+
+        # 3. compute raw SSE
+        SSE = 0.0
+        for i, y in enumerate(self.model.results[:,0]):
+            t = self.model.t[i]
             if t < self.model.tramp:
-                ytarget = self.model.ymag * (t / self.model.tramp)
+                ytar = self.model.ymag * (t/self.model.tramp)
             else:
-                ytarget = self.model.ymag
-            SSE+=(y-ytarget)**2
+                ytar = self.model.ymag
+            SSE += (y - ytar)**2
 
-        #some penalty functions if the constants are too small
+        # 4. out‐of‐bounds penalties (only when optimizing)
         if optimizing:
-            if k1<self.model.mink1 or k1>self.model.maxk1:
-                SSE+=100
-            if c1<10:
-                SSE+=100
-            if k2<self.model.mink2 or k2>self.model.maxk2:
-                SSE+=100
+            if k1 < self.model.mink1 or k1 > self.model.maxk1:
+                SSE += 100
+            if c1 < 10:
+                SSE += 100
+            if k2 < self.model.mink2 or k2 > self.model.maxk2:
+                SSE += 100
 
-            # I'm overlaying a gradient in the acceleration limit that scales with distance from a target squared.
-            if self.model.accelMax>self.model.accelLim and self.chk_IncludeAccel.isChecked():
-                # need to soften suspension
-                SSE+=(self.model.accelMax-self.model.accelLim)**2
-        self.model.SSE=SSE
+            # 5. accel penalty if checked
+            if self.chk_IncludeAccel.isChecked() and self.model.accelMax > self.model.accelLim:
+                excess = self.model.accelMax - self.model.accelLim
+                SSE += excess**2
+
+        # 6. store & return
+        self.model.SSE = SSE
         return SSE
 
-    def doPlot(self):
+    def doPlot(self, *args):
         self.view.doPlot(self.model)
 #endregion
 #endregion
